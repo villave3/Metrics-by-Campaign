@@ -1,0 +1,83 @@
+set start_date =to_date('2022-01-01') ;
+ set end_date =to_date('2023-12-31');
+ set campIDs ='["EM_SFEDS_US_v1_BIV6EOVNLU_1703","EM_SFEDS_US_v2_Y6JX0YRY7V_1703"]';
+  
+ SELECT
+ camp.ua_campaign_name as CampaignName
+ ,campaign_id as TrackingID
+ ,MAX(snd.sends) as Sends
+ ,MAX(cl.clicks) as Clicks
+ ,MAX(unsub.unsubs) as Unsubs
+ ,MAX(v.visits) as Visits
+ ,Count(Distinct ord.hit_ID) as Orders
+ ,SUM(ord.AlternateRevenue) as Revenue
+ ,TO_NUMBER(MAX(cl.clicks)/MAX(snd.sends),10,4) as ClickThroughRate
+ ,TO_NUMBER(MAX(unsub.unsubs)/MAX(snd.sends),10,4) as UnsubRate
+ ,TO_NUMBER(COUNT (DISTINCT ord.hit_ID)/Max(v.visits),10,4) as ConversionRate
+ ,TO_NUMBER(SUM(ord.AlternateRevenue)/Count(Distinct ord.hit_ID),10,4) as AOV
+ ,TO_NUMBER(SUM(ord.AlternateRevenue)/MAX(snd.sends),10,4) as RPE
+ 
+ 
+ FROM
+ (
+ SELECT 
+   ord.DATE
+   ,ord.DATE_TIME
+   ,ord.HIT_ID
+   ,ord.REGION
+   ,ord.PLATFORM
+   ,ord.VISIT_ID
+   ,ord.PURCHASE_ID
+   ,ord.UNITS
+   ,ord.ONSALE_UNITS
+   ,ord.REVENUE
+   ,ord.onsale_revenue
+   ,ord.shipping_revenue
+   ,ord.revenue/dup.count as AlternateRevenue
+   ,dup.campaign_id
+   
+   FROM DAPL_CDF_PRD_DB.UA_ADOBE_ANALYTICS_BAS.FCT_ECOMM_ORDERS ord
+    
+   LEFT JOIN
+   (SELECT 
+   HIT_ID
+    ,campaign_id
+   ,Count(HIT_ID) as count
+   
+   FROM DAPL_CDF_PRD_DB.UA_ADOBE_ANALYTICS_BAS.FCT_ECOMM_CID_DETAIL 
+   WHERE date between $start_date and $end_date 
+    Group By HIT_ID,campaign_id) as dup
+   on ord.hit_id=dup.hit_ID 
+   
+   WHERE ord.revenue > 0 and ord.date between $start_date and $end_date and ord.region like '%NA%' and dup.campaign_id IN (Select Value From Table(flatten(input=>parse_json($campIDs))))
+   
+   GROUP BY ord.DATE
+   ,ord.DATE_TIME
+   ,ord.HIT_ID
+   ,ord.REGION
+   ,ord.PLATFORM
+   ,ord.VISIT_ID
+   ,ord.PURCHASE_ID
+   ,ord.UNITS
+   ,ord.ONSALE_UNITS
+   ,ord.REVENUE
+   ,ord.onsale_revenue
+   ,ord.shipping_revenue
+   ,dup.count
+   ,dup.campaign_id) as ord
+   
+   LEFT JOIN DAPL_CDF_PRD_DB.UA_CLARAVINE_CLN.CAMPAIGN_METADATA as camp
+   ON ord.campaign_id=camp.CID_VALUE
+   
+   LEFT JOIN 
+   
+   ( SELECT 
+   camp.CID_VALUE
+   ,count(distinct v.visit_id) as visits
+   
+   FROM DAPL_CDF_PRD_DB.UA_ADOBE_ANALYTICS_BAS.FCT_ECOMM_PAGE_VIEWS as v
+   
+   LEFT JOIN DAPL_CDF_PRD_DB.UA_ADOBE_ANALYTICS_BAS.FCT_ECOMM_CID_DETAIL as d
+   on v.hit_id=d.hit_id
+   AND d.date between $start_date and $end_date
+ 
